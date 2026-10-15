@@ -1,0 +1,69 @@
+name: Build QSplit
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            cmake_args: '-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64'
+            artifact: QSplit-macOS
+          - os: windows-latest
+            cmake_args: ''
+            artifact: QSplit-Windows
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Configure
+        shell: bash
+        run: |
+          if [ -n "${{ matrix.cmake_args }}" ]; then
+            cmake -S . -B build -DCMAKE_BUILD_TYPE=Release "${{ matrix.cmake_args }}"
+          else
+            cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          fi
+
+      - name: Build
+        run: cmake --build build --config Release -j
+
+      - name: Create installer PKG and DMG (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install create-dmg
+          PKGROOT="$RUNNER_TEMP/pkgroot"
+          mkdir -p "$PKGROOT/Library/Audio/Plug-Ins/VST3"
+          mkdir -p "$PKGROOT/Library/Audio/Plug-Ins/Components"
+          find build/QSplit_artefacts -name "*.vst3" -exec cp -R {} "$PKGROOT/Library/Audio/Plug-Ins/VST3/" \;
+          find build/QSplit_artefacts -name "*.component" -exec cp -R {} "$PKGROOT/Library/Audio/Plug-Ins/Components/" \;
+          pkgbuild --root "$PKGROOT" \
+            --identifier com.headroomaudio.qsplit \
+            --version 0.1.0 \
+            --install-location / \
+            "$RUNNER_TEMP/QSplit-Installer.pkg"
+          DMGSTAGE="$RUNNER_TEMP/dmg-stage"
+          mkdir -p "$DMGSTAGE"
+          cp "$RUNNER_TEMP/QSplit-Installer.pkg" "$DMGSTAGE/"
+          create-dmg --volname "QSplit" "QSplit-v0.1.0-macOS.dmg" "$DMGSTAGE"
+
+      - name: Upload artefacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: build/QSplit_artefacts/
+
+      - name: Upload DMG (macOS)
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: QSplit-macOS-DMG
+          path: QSplit-v0.1.0-macOS.dmg
