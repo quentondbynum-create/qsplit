@@ -130,7 +130,7 @@ QSplitProcessor::QSplitProcessor()
     : AudioProcessor (BusesProperties().withInput ("Input", juce::AudioChannelSet::stereo(), true)
                                        .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       apvts (*this, nullptr, "QSplitParams", createParameterLayout()),
-      separator (std::make_unique<StubSeparator>())
+      separator (std::make_unique<DemucsSeparator>())
 {
 }
 
@@ -389,6 +389,52 @@ juce::ThreadPoolJob::JobStatus QSplitProcessor::SeparationJob::runJob()
 
     const double sr = owner.songSampleRate;
     std::atomic<bool>& cancel = owner.cancelFlag;
+
+    // Phase 2: ensure the AI model is downloaded before separating.
+    // Downloads to ~/Documents/Headroom Audio/QSplit/Models/ on first use.
+    if (! DemucsSeparator::isModelAvailable())
+    {
+        owner.sepProgress.store (0.0f);
+        const juce::URL url (DemucsSeparator::getModelDownloadURL());
+        const auto modelFile = DemucsSeparator::getModelFile();
+        modelFile.getParentDirectory().createDirectory();
+
+        bool downloadOk = false;
+        // juce::URL::downloadToFile is blocking; runs on this worker thread.
+        // Progress 0.0..0.05 reserved for the download.
+        auto stream = url.createInputStream (false, nullptr, nullptr, 0, 0, nullptr, nullptr, 0);
+        if (stream != nullptr)
+        {
+            const int64 total = stream->getTotalLength();
+            juce::FileOutputStream fos (modelFile);
+            if (fos.openedOk())
+            {
+                juce::MemoryBlock mb;
+                int64 downloaded = 0;
+                while (! stream->isExhausted() && ! cancel.load())
+                {
+                    const size_t n = (size_t) juce::jmin<int64> (1 << 20, stream->getNumBytesRemaining());
+                    if (n == 0) break;
+                    mb.setSize (n);
+                    const int got = stream->read (mb.getData(), (int) n);
+                    if (got <= 0) break;
+                    fos.write (mb.getData(), (size_t) got);
+                    downloaded += got;
+                    if (total > 0)
+                        owner.sepProgress.store (0.05f * (float) downloaded / (float) total);
+                }
+                fos.flush();
+                downloadOk = ! cancel.load() && DemucsSeparator::isModelAvailable();
+            }
+        }
+
+        if (! downloadOk)
+        {
+            owner.sepState.store (SepState::SongLoaded);
+            owner.sepProgress.store (-2.0f); // signals "model download failed" to UI
+            return juce::ThreadPoolJob::jobHasFinished;
+        }
+    }
 
     std::array<juce::AudioBuffer<float>, 4> localStems;
     const bool ok = owner.separator->separate (
