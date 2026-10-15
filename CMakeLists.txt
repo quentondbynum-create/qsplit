@@ -75,6 +75,7 @@ target_link_libraries(QSplit PRIVATE
     juce::juce_audio_processors
     juce::juce_audio_formats
     juce::juce_dsp
+    juce::juce_graphics
     QSplitAssets
     ${ORT_LIB}
     PUBLIC
