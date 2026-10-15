@@ -8,6 +8,7 @@
 #include <functional>
 
 #include "StemSeparator.h"
+#include "DemucsSeparator.h"
 
 //==============================================================================
 // Simple STFT spectral gate — the "Cleanup" stage.
@@ -65,7 +66,7 @@ private:
     master gain -> out. Each stem can be bounced to WAV (what you hear is
     what you get: the bounce runs the same cleanup gate).
 
-    Phase 1 uses StubSeparator; Phase 2 implements StemSeparator with ONNX.
+    Phase 1 used StubSeparator; Phase 2 uses DemucsSeparator (ONNX htdemucs).
 */
 class QSplitProcessor : public juce::AudioProcessor
 {
