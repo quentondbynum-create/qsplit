@@ -535,7 +535,11 @@ void QSplitEditor::handleDroppedFiles (const juce::StringArray& files)
             if (processor.loadSongFile (file))
             {
                 refreshSongUI();
-                statusLabel.setText ("Separating…", juce::dontSendNotification);
+                if (! DemucsSeparator::isModelAvailable())
+                    statusLabel.setText ("Downloading AI model (158 MB, one-time)…",
+                                         juce::dontSendNotification);
+                else
+                    statusLabel.setText ("Separating…", juce::dontSendNotification);
                 processor.startSeparation();
                 resized();
             }
@@ -591,7 +595,14 @@ void QSplitEditor::refreshAfterSeparation()
     resized(); // hides the progress strip
 
     if (state == QSplitProcessor::SepState::Failed)
-        statusLabel.setText ("Separation failed.", juce::dontSendNotification);
+    {
+        const float p = processor.getSeparationProgress();
+        if (p == -2.0f)
+            statusLabel.setText ("AI model download failed — check your connection and try again.",
+                                 juce::dontSendNotification);
+        else
+            statusLabel.setText ("Separation failed.", juce::dontSendNotification);
+    }
     else if (ready)
         statusLabel.setText ("Stems ready — press Play to audition before bouncing.",
                              juce::dontSendNotification);
