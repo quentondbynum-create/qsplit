@@ -400,20 +400,22 @@ juce::ThreadPoolJob::JobStatus QSplitProcessor::SeparationJob::runJob()
         modelFile.getParentDirectory().createDirectory();
 
         bool downloadOk = false;
-        // juce::URL::downloadToFile is blocking; runs on this worker thread.
+        // Blocking download on this worker thread.
         // Progress 0.0..0.05 reserved for the download.
-        auto stream = url.createInputStream (false, nullptr, nullptr, 0, 0, nullptr, nullptr, 0);
+        auto stream = url.createInputStream (juce::URL::InputStreamOptions (juce::URL::ParameterHandling::inAddress)
+            .withConnectionTimeoutMs (0)
+            .withNumRedirectsToFollow (5));
         if (stream != nullptr)
         {
-            const int64 total = stream->getTotalLength();
+            const juce::int64 total = stream->getTotalLength();
             juce::FileOutputStream fos (modelFile);
             if (fos.openedOk())
             {
                 juce::MemoryBlock mb;
-                int64 downloaded = 0;
+                juce::int64 downloaded = 0;
                 while (! stream->isExhausted() && ! cancel.load())
                 {
-                    const size_t n = (size_t) juce::jmin<int64> (1 << 20, stream->getNumBytesRemaining());
+                    const size_t n = (size_t) juce::jmin<juce::int64> (1 << 20, stream->getNumBytesRemaining());
                     if (n == 0) break;
                     mb.setSize (n);
                     const int got = stream->read (mb.getData(), (int) n);
