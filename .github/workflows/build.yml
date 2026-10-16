@@ -40,16 +40,19 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           brew install create-dmg
+          # Stage files mirroring the macOS filesystem layout
           PKGROOT="$RUNNER_TEMP/pkgroot"
           mkdir -p "$PKGROOT/Library/Audio/Plug-Ins/VST3"
           mkdir -p "$PKGROOT/Library/Audio/Plug-Ins/Components"
           find build/QSplit_artefacts -name "*.vst3" -exec cp -R {} "$PKGROOT/Library/Audio/Plug-Ins/VST3/" \;
           find build/QSplit_artefacts -name "*.component" -exec cp -R {} "$PKGROOT/Library/Audio/Plug-Ins/Components/" \;
+          # Build the installer package (installs to / automatically)
           pkgbuild --root "$PKGROOT" \
             --identifier com.headroomaudio.qsplit \
             --version 0.1.0 \
             --install-location / \
             "$RUNNER_TEMP/QSplit-Installer.pkg"
+          # Wrap the installer in a DMG for distribution
           DMGSTAGE="$RUNNER_TEMP/dmg-stage"
           mkdir -p "$DMGSTAGE"
           cp "$RUNNER_TEMP/QSplit-Installer.pkg" "$DMGSTAGE/"
@@ -60,8 +63,13 @@ jobs:
         run: |
           AU_PATH=$(find build/QSplit_artefacts -name "*.component" | head -n 1)
           echo "Validating: $AU_PATH"
+          # auval scans ~/Library/Audio/Plug-Ins/Components — copy there
           mkdir -p ~/Library/Audio/Plug-Ins/Components
           cp -R "$AU_PATH" ~/Library/Audio/Plug-Ins/Components/
+          # Force macOS to rescan Audio Units (fresh runners have a stale AU cache)
+          killall -9 AudioComponentRegistrar 2>/dev/null || true
+          sleep 3
+          # -v aufx Qspl Hdrm = validate our specific AU (fails the job if it can't open)
           auval -v aufx Qspl Hdrm 2>&1 | tee auval.log
           if grep -q "couldn't be opened\|FATAL ERROR" auval.log; then
             echo "::error::auval FAILED — QSplit Audio Unit could not be opened"
