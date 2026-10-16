@@ -55,6 +55,20 @@ jobs:
           cp "$RUNNER_TEMP/QSplit-Installer.pkg" "$DMGSTAGE/"
           create-dmg --volname "QSplit" "QSplit-v0.1.0-macOS.dmg" "$DMGSTAGE"
 
+      - name: Validate Audio Unit with auval (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          AU_PATH=$(find build/QSplit_artefacts -name "*.component" | head -n 1)
+          echo "Validating: $AU_PATH"
+          mkdir -p "$RUNNER_TEMP/Components"
+          cp -R "$AU_PATH" "$RUNNER_TEMP/Components/"
+          auval -v aufx Qspl Hdrm 2>&1 | tee auval.log
+          if grep -q "couldn't be opened\|FATAL ERROR" auval.log; then
+            echo "::error::auval FAILED — QSplit Audio Unit could not be opened"
+            exit 1
+          fi
+          echo "auval PASSED"
+
       - name: Upload artefacts
         uses: actions/upload-artifact@v4
         with:
