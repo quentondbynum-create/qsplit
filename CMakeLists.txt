@@ -85,12 +85,21 @@ target_link_libraries(QSplit PRIVATE
 
 # Bundle the ONNX Runtime shared library next to the plugin binaries.
 if (APPLE)
-    # Copy into each plugin bundle's MacOS folder post-build.
+    # Copy into each plugin bundle's MacOS folder post-build, then fix the
+    # dylib's install name and the binary's rpath so dyld can actually find it
+    # at load time. Without this, the plugin binary fails to load entirely
+    # (auval: "couldn't be opened") even though the dylib sits right next to it.
     foreach (fmt AU VST3 Standalone)
         add_custom_command (TARGET QSplit_${fmt} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${ORT_LIB}"
-                "$<TARGET_BUNDLE_DIR:QSplit_${fmt}>/Contents/MacOS/")
+                "$<TARGET_BUNDLE_DIR:QSplit_${fmt}>/Contents/MacOS/"
+            COMMAND install_name_tool -id "@rpath/libonnxruntime.dylib"
+                "$<TARGET_BUNDLE_DIR:QSplit_${fmt}>/Contents/MacOS/libonnxruntime.dylib"
+            COMMAND install_name_tool -change "@rpath/libonnxruntime.1.23.2.dylib" "@rpath/libonnxruntime.dylib"
+                "$<TARGET_BUNDLE_DIR:QSplit_${fmt}>/Contents/MacOS/QSplit"
+            COMMAND install_name_tool -add_rpath "@loader_path"
+                "$<TARGET_BUNDLE_DIR:QSplit_${fmt}>/Contents/MacOS/QSplit")
     endforeach()
 elseif (WIN32)
     # Copy the DLL next to each plugin binary.
