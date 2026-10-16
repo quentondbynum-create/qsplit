@@ -60,8 +60,8 @@ jobs:
         run: |
           AU_PATH=$(find build/QSplit_artefacts -name "*.component" | head -n 1)
           echo "Validating: $AU_PATH"
-          mkdir -p "$RUNNER_TEMP/Components"
-          cp -R "$AU_PATH" "$RUNNER_TEMP/Components/"
+          mkdir -p ~/Library/Audio/Plug-Ins/Components
+          cp -R "$AU_PATH" ~/Library/Audio/Plug-Ins/Components/
           auval -v aufx Qspl Hdrm 2>&1 | tee auval.log
           if grep -q "couldn't be opened\|FATAL ERROR" auval.log; then
             echo "::error::auval FAILED — QSplit Audio Unit could not be opened"
