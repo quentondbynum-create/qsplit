@@ -2,6 +2,7 @@
 
 #include <onnxruntime_cxx_api.h>
 
+#include <algorithm>
 #include <cmath>
 #include <vector>
 
