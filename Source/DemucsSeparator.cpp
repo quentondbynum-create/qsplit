@@ -81,21 +81,17 @@ juce::AudioBuffer<float> resampleBuffer (const juce::AudioBuffer<float>& in,
 //==============================================================================
 struct DemucsSeparator::OrtImpl
 {
-    Ort::Env env { ORT_LOGGING_LEVEL_WARNING, "QSplit" };
-    Ort::SessionOptions sessionOptions;
+    // NOTE: Ort::Env and friends are created LAZILY in ensureSessionLoaded(),
+    // never in the constructor. If ORT fails to initialize (missing dylib,
+    // architecture mismatch, etc.), the exception is caught and reported as a
+    // string instead of crashing the plugin at open time.
+    std::unique_ptr<Ort::Env> env;
+    std::unique_ptr<Ort::SessionOptions> sessionOptions;
     std::unique_ptr<Ort::Session> session;
-    Ort::AllocatorWithDefaultOptions allocator;
     bool loaded = false;
     juce::String loadError;
 
-    OrtImpl()
-    {
-        // CRITICAL: the default graph optimizer hangs on this 13k-node graph
-        // (verified 2026-10-15 — session creation never returns). Disable it.
-        sessionOptions.SetGraphOptimizationLevel (
-            GraphOptimizationLevel::ORT_DISABLE_ALL);
-        sessionOptions.SetIntraOpNumThreads (juce::jmax (1, (int) juce::SystemStats::getNumCpus() / 2));
-    }
+    OrtImpl() = default;
 };
 
 DemucsSeparator::DemucsSeparator() : impl (std::make_unique<OrtImpl>()) {}
@@ -135,13 +131,27 @@ bool DemucsSeparator::ensureSessionLoaded (juce::String& errorOut)
 
     try
     {
+        // Lazy ORT initialization — everything that can throw lives here,
+        // so a broken ONNX Runtime can never crash the plugin at open time.
+        if (impl->env == nullptr)
+        {
+            impl->env = std::make_unique<Ort::Env> (ORT_LOGGING_LEVEL_WARNING, "QSplit");
+            impl->sessionOptions = std::make_unique<Ort::SessionOptions>();
+            // CRITICAL: the default graph optimizer hangs on this 13k-node graph
+            // (verified 2026-10-15 — session creation never returns). Disable it.
+            impl->sessionOptions->SetGraphOptimizationLevel (
+                GraphOptimizationLevel::ORT_DISABLE_ALL);
+            impl->sessionOptions->SetIntraOpNumThreads (
+                juce::jmax (1, (int) juce::SystemStats::getNumCpus() / 2));
+        }
+
         const auto path = getModelFile().getFullPathName();
        #if JUCE_WINDOWS
         impl->session = std::make_unique<Ort::Session> (
-            impl->env, path.toWideCharPointer(), impl->sessionOptions);
+            *impl->env, path.toWideCharPointer(), *impl->sessionOptions);
        #else
         impl->session = std::make_unique<Ort::Session> (
-            impl->env, path.toRawUTF8(), impl->sessionOptions);
+            *impl->env, path.toRawUTF8(), *impl->sessionOptions);
        #endif
         impl->loaded = true;
         return true;
@@ -149,6 +159,18 @@ bool DemucsSeparator::ensureSessionLoaded (juce::String& errorOut)
     catch (const Ort::Exception& e)
     {
         errorOut = "ONNX Runtime: " + juce::String (e.what());
+        impl->loadError = errorOut;
+        return false;
+    }
+    catch (const std::exception& e)
+    {
+        errorOut = "AI engine failed to start: " + juce::String (e.what());
+        impl->loadError = errorOut;
+        return false;
+    }
+    catch (...)
+    {
+        errorOut = "AI engine failed to start (unknown error).";
         impl->loadError = errorOut;
         return false;
     }
